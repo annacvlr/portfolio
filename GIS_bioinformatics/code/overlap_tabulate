@@ -1,0 +1,184 @@
+library(sf) 
+library(dplyr) 
+sf_use_s2(FALSE)
+
+
+mammals_data <- st_read("../data/assessment/MAMMALS(1)/MAMMALS.shp")
+
+
+CDV_animals <- list("Procyon lotor", "Musterla putorius", "Pusa caspica", "Mustela lutreola", "Civettictis civetta", 
+"Panthera pardus", "Panthera leo", "Lupulella mesomelas", "Otocyon megalotis", "Pusa sibirica")
+
+CDV_subset <- mammals_data %>%
+  filter(sci_name %in% CDV_animals)
+
+print(CDV_subset)
+
+focal <- mammals_data %>% 
+  filter(sci_name == "Vulpes vulpes")
+
+print(focal)
+
+
+st_crs(focal)  # Check CRS of the focal species
+st_crs(CDV_subset) 
+
+focal_projected <- st_transform(focal, crs = 3857)  # or crs = 3395
+CDV_subset_projected <- st_transform(CDV_subset, crs = 3857)  # or crs = 3395
+
+
+overlap <- st_intersection(focal_projected, CDV_subset_projected)
+
+overlapping_CDV_subset <- CDV_subset %>%
+  filter(sci_name %in% overlap$sci_name)  # Only take species that are in the intersection
+
+# Calculate the area of overlap
+overlap$overlap_area <- st_area(overlap)
+
+overlap$overlap_area <- as.numeric(overlap$overlap_area)
+
+total_area <- CDV_subset_projected %>%
+    mutate(total_area = as.numeric(st_area(.)))
+
+overlap_summary <- overlap %>%
+  st_join(total_area, by = "sci_name") %>%
+  mutate(overlap_proportion = overlap_area / total_area * 100)
+
+class(overlap_summary)
+colnames(overlap_summary)
+
+# Create the summary table
+overlap_table <- overlap_summary %>%
+  st_drop_geometry() %>%
+  as.data.frame() %>%
+  dplyr::select(
+    concerned_species = sci_name.y,  # Rename column for clarity
+    concerned_species_total_range_area = total_area, 
+    overlap_of_concerned_species_with_focal = overlap_area,
+    percentage_overlap_with_vulpes_vulpes = overlap_proportion
+  )
+
+  head(overlap_summary)
+
+
+# Print the table
+print(overlap_table)
+
+class(overlap_table)
+
+library(gridExtra)
+library(ggplot2)
+table_grob <- tableGrob(collapsed_table, rows = NULL)
+
+collapsed_table <- overlap_table %>%
+  group_by(concerned_species) %>% 
+  summarise(
+    concerned_species_total_range_area = mean(concerned_species_total_range_area, na.rm = TRUE),
+    overlap_of_concerned_species_with_focal = mean(overlap_of_concerned_species_with_focal, na.rm = TRUE),
+    percentage_overlap_with_vulpes_vulpes = mean(percentage_overlap_with_vulpes_vulpes, na.rm = TRUE)
+  )
+
+  ggsave("../results/Vulpes_vulpes_overlap_table.pdf", table_grob, width = 14, height = 4)
+
+print(collapsed_table)
+
+colnames(collapsed_table)
+collapsed_table <- collapsed_table %>%
+    rename(#"CDV Susceptible Species" = concerned_species,
+    "Area of each Species" = concerned_species_total_range_area,
+    "Area of overlap of Susceptible Species with Focal Species *italic(Vulpes vulpes)" = overlap_of_concerned_species_with_focal,
+    "% Area of Susceptible species overlap with Focal Species "*italic"(Vulpes vulpes)" = percentage_overlap_with_vulpes_vulpes )
+
+
+colnames(collapsed_table) <- c(
+  "CDV Susceptible Species",
+  "Area of each Species",
+  "Area of overlap\nof Susceptible Species\nwith Focal Species (Vulpes vulpes)",
+  "% Area of Susceptible species\noverlap with Focal Species (Vulpes vulpes)"
+)
+
+collapsed_table$`CDV Susceptible Species` <- gsub("\\*", "", collapsed_table$`CDV Susceptible Species`)
+
+library(knitr)
+library(kableExtra)
+collapsed_tabless$`CDV Susceptible Species` <- paste0("*", collapsed_table$`CDV Susceptible Species`, "*")
+table_grob <- tableGrob(collapsed_table, theme = ttheme_minimal())
+ggsave("../results/Vulpes_vulpes_overlap_table1.pdf", collapsed_table, width = 14, height = 4)
+
+
+
+library(raster)
+library(sf) 
+library(dplyr) 
+library(exactextractr)
+library(gglpot2)
+sf_use_s2(FALSE)
+
+
+mammals_data <- st_read("../data/assessment/MAMMALS(1)/MAMMALS.shp")
+
+focal <- mammals_data %>% 
+  filter(sci_name == "Vulpes vulpes")
+
+print(focal)
+
+focal_crs <- st_crs(focal)$epsg
+pop_crs <- crs(pop)
+
+
+if (focal_crs != pop_crs) {
+  focal_projected <- st_transform(focal, crs = crs(pop))
+} else {
+  focal_projected <- focal  # No need to reproject if CRS is the same
+}
+
+
+
+st_crs(focal)  # Check CRS of the focal species
+
+
+pop <- raster("../data/assessment/gpw_v4_population_density_rev11_2020_15_min.tif")
+
+focal_projected <- st_transform(focal, crs = 3857)  # or crs = 3395
+pop_cropped <- crop(pop, extent(focal_projected))
+species_pop_density <- exact_extract(pop_cropped, focal_projected, fun = median, na.rm = TRUE)
+species_pop_density_df <- data.frame(species = focal_projected$sci_name, median_population_density = species_pop_density)
+species_pop_density_stats <- extract(pop_cropped, focal_projected, df = TRUE)
+summary_stats <- species_pop_density_stats %>%
+  group_by(species) %>%
+  summarize(
+    median_density = median(population_density, na.rm = TRUE),
+    mean_density = mean(population_density, na.rm = TRUE),
+    max_density = max(population_density, na.rm = TRUE),
+    min_density = min(population_density, na.rm = TRUE)
+  )
+print(summary_stats)
+
+#coordinate CRS 
+crs(pop)
+
+
+
+pop_df <- as.data.frame(pop, xy = TRUE, na.rm = TRUE)
+colnames(pop_df) <- c("longitude", "latitude", "population_density")
+breaks <- c(0, 1, 10, 50, 100, 500, 1000, 5000)# max(pop_df$population_density, na.rm = TRUE))
+breaks_rescaled <- scales::rescale(breaks)
+print(pop)
+print(df_pop)
+
+###Population map 
+population_percentile <- quantile(pop_df$population_density, 0.95, na.rm = TRUE)
+hotspot_mask <- pop >= population_percentile
+hotspot_spatial <- rasterToPolygons(hotspot_mask, dissolve = TRUE)
+hotspot_sf <- st_as_sf(hotspot_spatial)
+ggplot() +
+  geom_sf(data = species_range, aes(fill = species_name), alpha = 0.5) + # Species range
+  geom_sf(data = hotspot_sf, aes(fill = "Hotspot"), alpha = 0.6, color = "red") + # Hotspot area
+  scale_fill_manual(values = c("lightblue", "red"), name = "Legend") +
+  theme_minimal() +
+  labs(
+    title = "Human Population Density Hotspots and Species Range",
+    subtitle = "Hotspots of Spillover Events into Humans (Top 5% Population Density)"
+  )
+
+
